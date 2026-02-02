@@ -10,12 +10,17 @@ dotenv.config();
 
 const app = express();
 const prisma = new PrismaClient();
-const PORT = process.env.PORT || 5000;
+
+// ✅ Railway uyumlu port + host
+const PORT = Number(process.env.PORT) || 8080;
+const HOST = '0.0.0.0';
 
 // Middleware
 app.use(cors());
 app.use(express.json());
-app.use('/uploads', express.static('uploads')); // Statik dosya servisi
+
+// ✅ uploads static (mutlak path daha stabil)
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 // Multer yapılandırması
 const storage = multer.diskStorage({
@@ -23,51 +28,50 @@ const storage = multer.diskStorage({
     cb(null, 'uploads/');
   },
   filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
     cb(null, uniqueSuffix + path.extname(file.originalname));
-  }
+  },
 });
 
-const upload = multer({ 
-  storage: storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+const upload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
   fileFilter: (req, file, cb) => {
     const allowedTypes = /jpeg|jpg|png|gif|webp/;
     const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
     const mimetype = allowedTypes.test(file.mimetype);
-    
-    if (mimetype && extname) {
-      return cb(null, true);
-    } else {
-      cb(new Error('Sadece resim dosyaları yüklenebilir!'));
-    }
-  }
+
+    if (mimetype && extname) return cb(null, true);
+    cb(new Error('Sadece resim dosyaları yüklenebilir!'));
+  },
 });
 
-// İlk admin oluştur
+// ✅ Railway crash olmasın diye try/catch + process açılışında çalıştır
 async function createInitialAdmin() {
-  const adminExists = await prisma.admin.findUnique({
-    where: { username: 'admin' }
-  });
-
-  if (!adminExists) {
-    await prisma.admin.create({
-      data: {
-        username: 'admin',
-        password: 'admin123'
-      }
+  try {
+    const adminExists = await prisma.admin.findUnique({
+      where: { username: 'admin' },
     });
-    console.log('✅ İlk admin kullanıcısı oluşturuldu: admin / admin123');
+
+    if (!adminExists) {
+      await prisma.admin.create({
+        data: {
+          username: 'admin',
+          password: 'admin123',
+        },
+      });
+      console.log('✅ İlk admin kullanıcısı oluşturuldu: admin / admin123');
+    }
+  } catch (err) {
+    console.error('❌ Initial admin oluşturma hatası:', err);
   }
 }
 
-createInitialAdmin();
-
 // Test route
 app.get('/api/test', (req: Request, res: Response) => {
-  res.json({ 
+  res.json({
     message: 'Backend TypeScript ile çalışıyor!',
-    status: 'success' 
+    status: 'success',
   });
 });
 
@@ -77,17 +81,19 @@ app.get('/', (req: Request, res: Response) => {
 });
 
 // ============= DOSYA YÜKLEME =============
-
 app.post('/api/upload', upload.single('image'), (req: Request, res: Response) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'Dosya yüklenmedi' });
     }
-    
-    const fileUrl = `http://localhost:${PORT}/uploads/${req.file.filename}`;
-    res.json({ 
-      success: true, 
-      url: fileUrl 
+
+    // ✅ localhost yerine gerçek domain üzerinden URL üret
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const fileUrl = `${baseUrl}/uploads/${req.file.filename}`;
+
+    res.json({
+      success: true,
+      url: fileUrl,
     });
   } catch (error) {
     res.status(500).json({ error: 'Dosya yükleme hatası' });
@@ -95,7 +101,6 @@ app.post('/api/upload', upload.single('image'), (req: Request, res: Response) =>
 });
 
 // ============= SERVİSLER =============
-
 app.get('/api/services', async (req: Request, res: Response) => {
   try {
     const services = await prisma.service.findMany();
@@ -108,11 +113,9 @@ app.get('/api/services', async (req: Request, res: Response) => {
 app.get('/api/services/:id', async (req: Request, res: Response) => {
   try {
     const service = await prisma.service.findUnique({
-      where: { id: parseInt(req.params.id) }
+      where: { id: parseInt(req.params.id) },
     });
-    if (!service) {
-      return res.status(404).json({ error: 'Servis bulunamadı' });
-    }
+    if (!service) return res.status(404).json({ error: 'Servis bulunamadı' });
     res.json(service);
   } catch (error) {
     res.status(500).json({ error: 'Servis getirilemedi' });
@@ -127,8 +130,8 @@ app.post('/api/services', async (req: Request, res: Response) => {
         title,
         description,
         price: price || null,
-        image: image || null
-      }
+        image: image || null,
+      },
     });
     res.json({ success: true, service });
   } catch (error) {
@@ -145,8 +148,8 @@ app.put('/api/services/:id', async (req: Request, res: Response) => {
         title,
         description,
         price: price || null,
-        image: image || null
-      }
+        image: image || null,
+      },
     });
     res.json(service);
   } catch (error) {
@@ -157,7 +160,7 @@ app.put('/api/services/:id', async (req: Request, res: Response) => {
 app.delete('/api/services/:id', async (req: Request, res: Response) => {
   try {
     await prisma.service.delete({
-      where: { id: parseInt(req.params.id) }
+      where: { id: parseInt(req.params.id) },
     });
     res.json({ success: true, message: 'Hizmet silindi' });
   } catch (error) {
@@ -166,17 +169,11 @@ app.delete('/api/services/:id', async (req: Request, res: Response) => {
 });
 
 // ============= RANDEVULAR =============
-
 app.get('/api/appointments', async (req: Request, res: Response) => {
   try {
     const appointments = await prisma.appointment.findMany({
-      include: {
-        user: true,
-        service: true
-      },
-      orderBy: {
-        createdAt: 'desc'
-      }
+      include: { user: true, service: true },
+      orderBy: { createdAt: 'desc' },
     });
     res.json(appointments);
   } catch (error) {
@@ -188,17 +185,11 @@ app.post('/api/appointments', async (req: Request, res: Response) => {
   try {
     const { name, email, phone, serviceId, date, notes } = req.body;
 
-    let user = await prisma.user.findUnique({
-      where: { email }
-    });
+    let user = await prisma.user.findUnique({ where: { email } });
 
     if (!user) {
       user = await prisma.user.create({
-        data: { 
-          name, 
-          email, 
-          phone: phone || null 
-        }
+        data: { name, email, phone: phone || null },
       });
     }
 
@@ -208,24 +199,21 @@ app.post('/api/appointments', async (req: Request, res: Response) => {
         serviceId: parseInt(serviceId),
         date: new Date(date),
         notes: notes || null,
-        status: 'pending'
+        status: 'pending',
       },
-      include: {
-        service: true,
-        user: true
-      }
+      include: { service: true, user: true },
     });
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       message: 'Randevunuz başarıyla oluşturuldu!',
-      appointment 
+      appointment,
     });
   } catch (error) {
     console.error('Randevu hatası:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Randevu oluşturulurken hata oluştu' 
+    res.status(500).json({
+      success: false,
+      message: 'Randevu oluşturulurken hata oluştu',
     });
   }
 });
@@ -236,10 +224,7 @@ app.patch('/api/appointments/:id', async (req: Request, res: Response) => {
     const appointment = await prisma.appointment.update({
       where: { id: parseInt(req.params.id) },
       data: { status },
-      include: {
-        user: true,
-        service: true
-      }
+      include: { user: true, service: true },
     });
     res.json(appointment);
   } catch (error) {
@@ -250,7 +235,7 @@ app.patch('/api/appointments/:id', async (req: Request, res: Response) => {
 app.delete('/api/appointments/:id', async (req: Request, res: Response) => {
   try {
     await prisma.appointment.delete({
-      where: { id: parseInt(req.params.id) }
+      where: { id: parseInt(req.params.id) },
     });
     res.json({ success: true, message: 'Randevu silindi' });
   } catch (error) {
@@ -259,49 +244,38 @@ app.delete('/api/appointments/:id', async (req: Request, res: Response) => {
 });
 
 // ============= ADMIN AUTH =============
-
 app.post('/api/admin/login', async (req: Request, res: Response) => {
   try {
     const { username, password } = req.body;
 
-    const admin = await prisma.admin.findUnique({
-      where: { username }
-    });
+    const admin = await prisma.admin.findUnique({ where: { username } });
 
     if (!admin || admin.password !== password) {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Kullanıcı adı veya şifre hatalı' 
+      return res.status(401).json({
+        success: false,
+        message: 'Kullanıcı adı veya şifre hatalı',
       });
     }
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       message: 'Giriş başarılı',
-      admin: {
-        id: admin.id,
-        username: admin.username
-      }
+      admin: { id: admin.id, username: admin.username },
     });
   } catch (error) {
-    res.status(500).json({ 
-      success: false, 
-      message: 'Giriş hatası' 
+    res.status(500).json({
+      success: false,
+      message: 'Giriş hatası',
     });
   }
 });
 
 // ============= ADMIN - İSTATİSTİKLER =============
-
 app.get('/api/admin/stats', async (req: Request, res: Response) => {
   try {
     const totalAppointments = await prisma.appointment.count();
-    const pendingAppointments = await prisma.appointment.count({
-      where: { status: 'pending' }
-    });
-    const approvedAppointments = await prisma.appointment.count({
-      where: { status: 'approved' }
-    });
+    const pendingAppointments = await prisma.appointment.count({ where: { status: 'pending' } });
+    const approvedAppointments = await prisma.appointment.count({ where: { status: 'approved' } });
     const totalServices = await prisma.service.count();
     const totalUsers = await prisma.user.count();
 
@@ -310,7 +284,7 @@ app.get('/api/admin/stats', async (req: Request, res: Response) => {
       pendingAppointments,
       approvedAppointments,
       totalServices,
-      totalUsers
+      totalUsers,
     });
   } catch (error) {
     res.status(500).json({ error: 'İstatistikler getirilemedi' });
@@ -318,13 +292,12 @@ app.get('/api/admin/stats', async (req: Request, res: Response) => {
 });
 
 // ============= GALERİ =============
-
 app.get('/api/gallery', async (req: Request, res: Response) => {
   try {
     const { category } = req.query;
     const gallery = await prisma.gallery.findMany({
       where: category ? { category: category as string } : undefined,
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
     });
     res.json(gallery);
   } catch (error) {
@@ -341,8 +314,8 @@ app.post('/api/gallery', async (req: Request, res: Response) => {
         category,
         beforeImage,
         afterImage,
-        description: description || null
-      }
+        description: description || null,
+      },
     });
     res.json({ success: true, gallery });
   } catch (error) {
@@ -353,7 +326,7 @@ app.post('/api/gallery', async (req: Request, res: Response) => {
 app.delete('/api/gallery/:id', async (req: Request, res: Response) => {
   try {
     await prisma.gallery.delete({
-      where: { id: parseInt(req.params.id) }
+      where: { id: parseInt(req.params.id) },
     });
     res.json({ success: true, message: 'Galeri öğesi silindi' });
   } catch (error) {
@@ -365,14 +338,33 @@ app.get('/api/gallery/categories', async (req: Request, res: Response) => {
   try {
     const categories = await prisma.gallery.findMany({
       select: { category: true },
-      distinct: ['category']
+      distinct: ['category'],
     });
-    res.json(categories.map(c => c.category));
+    res.json(categories.map((c) => c.category));
   } catch (error) {
     res.status(500).json({ error: 'Kategoriler getirilemedi' });
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Server ${PORT} portunda çalışıyor`);
+// ✅ düzgün kapanış
+process.on('SIGTERM', async () => {
+  console.log('SIGTERM received. Closing Prisma...');
+  await prisma.$disconnect();
+  process.exit(0);
+});
+
+async function start() {
+  // admin oluştur
+  await createInitialAdmin();
+
+  // server start
+  app.listen(PORT, HOST, () => {
+    console.log(`🚀 Server ${HOST}:${PORT} üzerinde çalışıyor`);
+  });
+}
+
+start().catch(async (err) => {
+  console.error('❌ Server start hatası:', err);
+  await prisma.$disconnect();
+  process.exit(1);
 });
