@@ -1,4 +1,3 @@
-import { Link } from 'react-router-dom'
 import drBerkerImage from '../assets/dr-berker.jpg'
 
 export default function About() {
@@ -20,7 +19,6 @@ export default function About() {
           <div className="md:flex items-stretch">
             {/* Left Image/Decorative Side */}
             <div className="hidden md:block md:w-5/12 bg-primary-900 relative min-h-[500px]">
-              {/* Placeholder for Doctor's Image - Using a professional aesthetic image for now */}
               <img
                 src={drBerkerImage}
                 alt="Op. Dr. Berker Büyükgüral"
